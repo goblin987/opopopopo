@@ -493,17 +493,21 @@ async def handle_city_selection(update: Update, context: ContextTypes.DEFAULT_TY
                         message_text_parts.append(f"{EMOJI_DISTRICT} *{escaped_dist_name}*:\n") # Keep newline after district name
 
                         # --- Build product list string for this district ---
+                        # Apply emergency mode filtering
+                        from utils import filter_green_emoji_from_text, filter_size_gram_symbol
                         for prod in products_in_district:
                             prod_emoji = PRODUCT_TYPES.get(prod['product_type'], DEFAULT_PRODUCT_EMOJI)
+                            display_emoji = filter_green_emoji_from_text(prod_emoji)
+                            display_size = filter_size_gram_symbol(prod['size'])
                             price_str = format_currency(prod['price'])
                             # Escape parts individually
                             escaped_type = helpers.escape_markdown(prod['product_type'], version=2)
-                            escaped_size = helpers.escape_markdown(prod['size'], version=2)
+                            escaped_size = helpers.escape_markdown(display_size, version=2)
                             escaped_price = helpers.escape_markdown(price_str, version=2)
                             escaped_qty = helpers.escape_markdown(str(prod['quantity']), version=2)
                             # Create the formatted line WITH a standard Python newline \n
                             # Removed the quantity display per admin request
-                            message_text_parts.append(f"    • {prod_emoji} {escaped_type} {escaped_size} \\({escaped_price}€\\)\n")
+                            message_text_parts.append(f"    • {display_emoji} {escaped_type} {escaped_size} \\({escaped_price}\\)\n")
 
                         # Add a blank line for spacing after the district's products
                         message_text_parts.append("\n")
@@ -677,7 +681,8 @@ async def handle_type_selection(update: Update, context: ContextTypes.DEFAULT_TY
             reseller_discount_percent = await asyncio.to_thread(get_reseller_discount, user_id, p_type)
             # <<< End Fetch >>>
 
-            from utils import filter_size_gram_symbol
+            from utils import filter_size_gram_symbol, filter_green_emoji_from_text
+            display_emoji = filter_green_emoji_from_text(product_emoji)
             for row in products:
                 size, original_price_decimal, count = row['size'], Decimal(str(row['price'])), row['count_available']
                 original_price_str = format_currency(original_price_decimal)
@@ -693,10 +698,10 @@ async def handle_type_selection(update: Update, context: ContextTypes.DEFAULT_TY
                     discounted_price_decimal = original_price_decimal - discount_amount
                     discounted_price_str = format_currency(discounted_price_decimal)
                     # Use simple plain text for original price notation
-                    button_text = f"{product_emoji} {display_size} ({discounted_price_str}€ / Orig: {original_price_str}€) - {available_label_short}: {count}"
+                    button_text = f"{display_emoji} {display_size} ({discounted_price_str} / Orig: {original_price_str}) - {available_label_short}: {count}"
                 else:
                     # No discount, show original price only
-                    button_text = f"{product_emoji} {display_size} ({original_price_str}€) - {available_label_short}: {count}"
+                    button_text = f"{display_emoji} {display_size} ({original_price_str}) - {available_label_short}: {count}"
                 # <<< End Apply >>>
 
                 # Callback still uses original price
@@ -759,7 +764,7 @@ async def handle_product_selection(update: Update, context: ContextTypes.DEFAULT
             if reseller_discount_percent > Decimal('0.0'):
                 discount_amount = (original_price * reseller_discount_percent / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_DOWN)
                 discounted_price = original_price - discount_amount
-                display_price_str = f"{format_currency(discounted_price)} (Orig: {original_price_formatted}€)"
+                display_price_str = f"{format_currency(discounted_price)} (Orig: {original_price_formatted})"
 
             # Only filter emoji from icon and 'g' from size, keep product name intact for buyers
             from utils import filter_green_emoji_from_text, filter_size_gram_symbol
@@ -768,7 +773,7 @@ async def handle_product_selection(update: Update, context: ContextTypes.DEFAULT
             
             msg = (f"{EMOJI_CITY} {city} | {EMOJI_DISTRICT} {district}\n"
                    f"{display_emoji} {p_type} - {display_size}\n"
-                   f"{EMOJI_PRICE} {price_label}: {display_price_str} EUR\n"
+                   f"{EMOJI_PRICE} {price_label}: {display_price_str}\n"
                    f"{EMOJI_QUANTITY} {available_label_long}: {available_count}")
 
             add_callback = f"add|{city_id}|{dist_id}|{p_type}|{size}|{price_str}"
@@ -1351,7 +1356,7 @@ async def handle_view_basket(update: Update, context: ContextTypes.DEFAULT_TYPE,
             discount_code = discount_code_to_revalidate
             discount_value_str = format_discount_value(discount_details['type'], discount_details['value'])
             discount_amount_str = format_currency(general_discount_amount)
-            discount_applied_str = (f"\n{EMOJI_DISCOUNT} {lang_data.get('discount_applied_label', 'Discount Applied')} ({discount_code}: {discount_value_str}): -{discount_amount_str} EUR")
+            discount_applied_str = (f"\n{EMOJI_DISCOUNT} {lang_data.get('discount_applied_label', 'Discount Applied')} ({discount_code}: {discount_value_str}): -{discount_amount_str}")
             context.user_data['applied_discount'] = {'code': discount_code_to_revalidate, 'amount': float(general_discount_amount), 'final_total': float(final_total)}
         else:
             context.user_data.pop('applied_discount', None)
@@ -1373,7 +1378,7 @@ async def handle_view_basket(update: Update, context: ContextTypes.DEFAULT_TYPE,
         price_display = format_currency(item_detail['discounted_price'])
         if item_detail['has_reseller_discount']:
             original_price_formatted = format_currency(item_detail['original_price'])
-            price_display += f" (Orig: {original_price_formatted}€)"
+            price_display += f" (Orig: {original_price_formatted})"
         timestamp = item_detail['timestamp']
         remaining_time = max(0, int(BASKET_TIMEOUT - (current_time - timestamp)))
         time_str = f"{remaining_time // 60} min {remaining_time % 60} sec"
@@ -1385,12 +1390,12 @@ async def handle_view_basket(update: Update, context: ContextTypes.DEFAULT_TYPE,
     subtotal_label = lang_data.get("subtotal_label", "Subtotal"); total_label = lang_data.get("total_label", "Total")
     basket_original_total_str = format_currency(basket_original_total)
     final_total_str = format_currency(final_total)
-    msg += f"\n{subtotal_label}: {basket_original_total_str} EUR"
+    msg += f"\n{subtotal_label}: {basket_original_total_str}"
     if total_reseller_discount_amount > Decimal('0.0'):
         reseller_discount_str = format_currency(total_reseller_discount_amount)
-        msg += f"\n{EMOJI_DISCOUNT} {reseller_discount_label}: -{reseller_discount_str} EUR"
+        msg += f"\n{EMOJI_DISCOUNT} {reseller_discount_label}: -{reseller_discount_str}"
     msg += discount_applied_str
-    msg += f"\n💳 **{total_label}: {final_total_str} EUR**"
+    msg += f"\n💳 **{total_label}: {final_total_str}**"
 
     pay_now_button_text = lang_data.get("pay_now_button", "Pay Now"); clear_all_button_text = lang_data.get("clear_all_button", "Clear All")
     remove_discount_button_text = lang_data.get("remove_discount_button", "Remove Discount"); apply_discount_button_text = lang_data.get("apply_discount_button", "Apply Discount Code")
