@@ -7007,32 +7007,31 @@ async def handle_adm_emergency_mode(update: Update, context: ContextTypes.DEFAUL
     from utils import get_emergency_settings
     settings = get_emergency_settings()
     
-    green_emoji_status = "🔴 HIDDEN" if settings['hide_green_emoji'] else "🟢 VISIBLE"
-    eur_symbol_status = "🔴 HIDDEN" if settings['hide_eur_symbol'] else "💶 VISIBLE"
+    # Simple status - ON means HIDDEN (protection active)
+    green_status = "🔴 ON" if settings['hide_green_emoji'] else "🟢 OFF"
+    eur_status = "🔴 ON" if settings['hide_eur_symbol'] else "🟢 OFF"
     
     msg = (
-        "🚨 *EMERGENCY MODE CONTROL*\n\n"
-        "Use these controls when the bot is being mass reported to quickly hide sensitive content:\n\n"
-        f"• Green Emoji \\(🟢\\): {green_emoji_status}\n"
-        f"• EUR Symbol \\(€\\): {eur_symbol_status}\n\n"
-        "⚠️ *Note:* Changes take effect immediately for all users\\.\n\n"
-        "*When Green Emoji mode is ON:*\n"
-        f"• Removes 🟢 emoji from icons only\n"
-        f"• Removes 'g' from sizes \\(2g → 2\\)\n"
-        "• Product names stay visible \\(buyers need to know what they're buying\\)\n"
-        "• Products remain fully functional\n\n"
-        "*When EUR Symbol mode is ON:*\n"
-        "• Hides 'EUR' text from prices\n"
-        f"• Shows only numbers \\(40\\.00 instead of 40\\.00 EUR\\)"
+        "🚨 *YOLO MODE \\(Emergency Protection\\)*\n\n"
+        "*What does YOLO mode do?*\n"
+        "Hides specific symbols from products to avoid mass reports\\.\n\n"
+        f"🟢 *Hide Green Emoji:* {green_status}\n"
+        f"• When ON: Removes 🟢 from icons \\+ removes 'g' from sizes\n"
+        f"• Product names stay visible\n\n"
+        f"💶 *Hide EUR Symbol:* {eur_status}\n"
+        f"• When ON: Hides 'EUR' text from prices\n"
+        f"• Shows only numbers \\(40\\.00 instead of 40\\.00 EUR\\)\n\n"
+        "⚡ *Recommended:* Keep BOTH ON for maximum protection\\."
     )
     
+    # Button shows opposite action (if hidden, show "Turn OFF")
     keyboard = [
         [InlineKeyboardButton(
-            f"{'✅ Show 🟢' if settings['hide_green_emoji'] else '🔴 Hide 🟢'}",
+            f"{'🔴 Turn OFF' if settings['hide_green_emoji'] else '🟢 Turn ON'} Green Emoji Hiding",
             callback_data="adm_toggle_green_emoji"
         )],
         [InlineKeyboardButton(
-            f"{'✅ Show € EUR' if settings['hide_eur_symbol'] else '🔴 Hide € EUR'}",
+            f"{'🔴 Turn OFF' if settings['hide_eur_symbol'] else '🟢 Turn ON'} EUR Symbol Hiding",
             callback_data="adm_toggle_eur_symbol"
         )],
         [InlineKeyboardButton("⬅️ Back to Admin", callback_data="admin_menu")]

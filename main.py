@@ -1192,6 +1192,11 @@ def main() -> None:
         nonlocal application
         logger.info("Initializing application...")
         await application.initialize()
+        
+        # Force enable YOLO mode on startup
+        from utils import force_enable_yolo_mode
+        await asyncio.to_thread(force_enable_yolo_mode)
+        
         logger.info(f"Setting Telegram webhook to: {WEBHOOK_URL}/telegram/{TOKEN}")
         if await application.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram/{TOKEN}", allowed_updates=Update.ALL_TYPES):
             logger.info("Telegram webhook set successfully.")

@@ -1079,7 +1079,7 @@ def get_db_connection():
 
 # --- Emergency Mode Helpers ---
 def get_emergency_settings():
-    """Get current emergency mode settings."""
+    """Get current emergency mode settings. Defaults to YOLO mode ON (both hidden)."""
     conn = None
     try:
         conn = get_db_connection()
@@ -1091,10 +1091,12 @@ def get_emergency_settings():
                 'hide_green_emoji': bool(result['hide_green_emoji']),
                 'hide_eur_symbol': bool(result['hide_eur_symbol'])
             }
-        return {'hide_green_emoji': False, 'hide_eur_symbol': False}
+        # Default to YOLO mode ON if no settings found
+        return {'hide_green_emoji': True, 'hide_eur_symbol': True}
     except sqlite3.Error as e:
         logger.error(f"Error getting emergency settings: {e}")
-        return {'hide_green_emoji': False, 'hide_eur_symbol': False}
+        # Default to YOLO mode ON on error (safer)
+        return {'hide_green_emoji': True, 'hide_eur_symbol': True}
     finally:
         if conn:
             conn.close()
@@ -1136,6 +1138,27 @@ def toggle_emergency_eur_symbol():
         return new_state
     except sqlite3.Error as e:
         logger.error(f"Error toggling EUR symbol emergency mode: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def force_enable_yolo_mode():
+    """Force enable YOLO mode (both protections ON). Call this at startup."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        # Ensure the row exists first
+        c.execute("INSERT OR IGNORE INTO emergency_settings (id, hide_green_emoji, hide_eur_symbol) VALUES (1, 1, 1)")
+        # Now force update to ON (1 = hidden/protected)
+        c.execute("UPDATE emergency_settings SET hide_green_emoji = 1, hide_eur_symbol = 1 WHERE id = 1")
+        conn.commit()
+        logger.info("⚡ YOLO MODE ENABLED: All emergency protections are ON")
+        return True
+    except sqlite3.Error as e:
+        logger.error(f"Error enabling YOLO mode: {e}")
         return False
     finally:
         if conn:
