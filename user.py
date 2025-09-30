@@ -229,6 +229,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Error answering callback for banned user {user_id}: {e2}")
         return
     
+    # Rate Limiting Check (prevent spam/mass reporting attempts)
+    from utils import check_rate_limit, log_suspicious_activity
+    if not is_callback:
+        is_allowed, wait_time = check_rate_limit(user_id, action="start", max_attempts=5, window_seconds=60)
+        if not is_allowed:
+            log_suspicious_activity(user_id, "RATE_LIMIT_EXCEEDED", f"/start command - must wait {wait_time}s")
+            await send_message_with_retry(
+                context.bot, chat_id,
+                f"⏳ Please slow down. You can try again in {wait_time} seconds.",
+                parse_mode=None
+            )
+            return
+    
     # CAPTCHA Verification Check (skip for callbacks and admins)
     from utils import is_user_verified, create_captcha_challenge, is_primary_admin, generate_captcha_image
     if not is_callback and not is_primary_admin(user_id):
