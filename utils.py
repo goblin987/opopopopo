@@ -1163,12 +1163,95 @@ def filter_size_gram_symbol(size: str) -> str:
 # --- CAPTCHA Verification Helpers ---
 import random
 import string
+from PIL import Image, ImageDraw, ImageFont
+import io
 
 def generate_captcha_code() -> str:
     """Generate a random 6-character CAPTCHA code (letters and numbers, excluding confusing characters)."""
     # Exclude confusing characters: 0, O, I, l, 1
     chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
     return ''.join(random.choice(chars) for _ in range(6))
+
+
+def generate_captcha_image(text: str) -> bytes:
+    """
+    Generate a CAPTCHA image with the given text.
+    Returns image bytes (PNG format).
+    """
+    # Image settings
+    width, height = 300, 100
+    background_color = (240, 240, 240)
+    text_color = (20, 20, 20)
+    
+    # Create image
+    image = Image.new('RGB', (width, height), background_color)
+    draw = ImageDraw.Draw(image)
+    
+    # Try to use a nice font, fallback to default if not available
+    try:
+        # Try multiple font paths for cross-platform compatibility
+        font_paths = [
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',  # Linux
+            'C:/Windows/Fonts/arial.ttf',  # Windows
+            '/System/Library/Fonts/Helvetica.ttc',  # macOS
+        ]
+        font = None
+        for font_path in font_paths:
+            if os.path.exists(font_path):
+                font = ImageFont.truetype(font_path, 50)
+                break
+        if font is None:
+            font = ImageFont.load_default()
+    except Exception:
+        font = ImageFont.load_default()
+    
+    # Add noise (random lines)
+    for _ in range(5):
+        x1 = random.randint(0, width)
+        y1 = random.randint(0, height)
+        x2 = random.randint(0, width)
+        y2 = random.randint(0, height)
+        draw.line([(x1, y1), (x2, y2)], fill=(200, 200, 200), width=1)
+    
+    # Add noise (random dots)
+    for _ in range(100):
+        x = random.randint(0, width)
+        y = random.randint(0, height)
+        draw.point((x, y), fill=(180, 180, 180))
+    
+    # Calculate text position (centered)
+    try:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+    except:
+        # Fallback for older Pillow versions
+        text_width, text_height = draw.textsize(text, font=font)
+    
+    x = (width - text_width) // 2
+    y = (height - text_height) // 2
+    
+    # Draw text with slight random offset per character for distortion
+    char_spacing = text_width // len(text)
+    for i, char in enumerate(text):
+        char_x = x + (i * char_spacing)
+        char_y = y + random.randint(-5, 5)  # Random vertical offset
+        
+        # Random rotation for each character (slight)
+        char_image = Image.new('RGBA', (char_spacing + 20, height), (0, 0, 0, 0))
+        char_draw = ImageDraw.Draw(char_image)
+        char_draw.text((10, height // 2 - text_height // 2), char, font=font, fill=text_color)
+        
+        # Rotate character slightly
+        rotated = char_image.rotate(random.randint(-15, 15), expand=False)
+        image.paste(rotated, (char_x - 10, 0), rotated)
+    
+    # Convert to bytes
+    img_byte_arr = io.BytesIO()
+    image.save(img_byte_arr, format='PNG')
+    img_byte_arr.seek(0)
+    
+    return img_byte_arr.getvalue()
 
 
 def is_user_verified(user_id: int) -> bool:
@@ -1551,11 +1634,11 @@ def init_db():
             # --- Emergency Mode Settings Table ---
             c.execute('''CREATE TABLE IF NOT EXISTS emergency_settings (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
-                hide_green_emoji INTEGER DEFAULT 0,
-                hide_eur_symbol INTEGER DEFAULT 0
+                hide_green_emoji INTEGER DEFAULT 1,
+                hide_eur_symbol INTEGER DEFAULT 1
             )''')
-            # Insert default emergency settings if not exists
-            c.execute("INSERT OR IGNORE INTO emergency_settings (id, hide_green_emoji, hide_eur_symbol) VALUES (1, 0, 0)")
+            # Insert default emergency settings (YOLO MODE - ON by default)
+            c.execute("INSERT OR IGNORE INTO emergency_settings (id, hide_green_emoji, hide_eur_symbol) VALUES (1, 1, 1)")
 
             # --- CAPTCHA Verification Table ---
             c.execute('''CREATE TABLE IF NOT EXISTS captcha_verification (

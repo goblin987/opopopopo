@@ -7013,25 +7013,26 @@ async def handle_adm_emergency_mode(update: Update, context: ContextTypes.DEFAUL
     msg = (
         "🚨 *EMERGENCY MODE CONTROL*\n\n"
         "Use these controls when the bot is being mass reported to quickly hide sensitive content:\n\n"
-        f"• Green Emoji (🟢): {green_emoji_status}\n"
-        f"• EUR Symbol (€): {eur_symbol_status}\n\n"
-        "⚠️ *Note:* Changes take effect immediately for all users.\n\n"
+        f"• Green Emoji \\(🟢\\): {green_emoji_status}\n"
+        f"• EUR Symbol \\(€\\): {eur_symbol_status}\n\n"
+        "⚠️ *Note:* Changes take effect immediately for all users\\.\n\n"
         "*When Green Emoji mode is ON:*\n"
-        "• Removes 🟢 from product names\n"
-        "• Removes 'g' from sizes (2g → 2)\n"
-        "• Products remain visible and functional\n\n"
+        f"• Removes 🟢 emoji from icons only\n"
+        f"• Removes 'g' from sizes \\(2g → 2\\)\n"
+        "• Product names stay visible \\(buyers need to know what they're buying\\)\n"
+        "• Products remain fully functional\n\n"
         "*When EUR Symbol mode is ON:*\n"
         "• Hides 'EUR' text from prices\n"
-        "• Shows only numbers (40.00 instead of 40.00 EUR)"
+        f"• Shows only numbers \\(40\\.00 instead of 40\\.00 EUR\\)"
     )
     
     keyboard = [
         [InlineKeyboardButton(
-            f"{'✅ Show' if settings['hide_green_emoji'] else '❌ Hide'} Green Emoji 🟢",
+            f"{'✅ Show 🟢' if settings['hide_green_emoji'] else '🔴 Hide 🟢'}",
             callback_data="adm_toggle_green_emoji"
         )],
         [InlineKeyboardButton(
-            f"{'✅ Show' if settings['hide_eur_symbol'] else '❌ Hide'} EUR Symbol €",
+            f"{'✅ Show € EUR' if settings['hide_eur_symbol'] else '🔴 Hide € EUR'}",
             callback_data="adm_toggle_eur_symbol"
         )],
         [InlineKeyboardButton("⬅️ Back to Admin", callback_data="admin_menu")]

@@ -230,28 +230,47 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # CAPTCHA Verification Check (skip for callbacks and admins)
-    from utils import is_user_verified, create_captcha_challenge, is_primary_admin
+    from utils import is_user_verified, create_captcha_challenge, is_primary_admin, generate_captcha_image
     if not is_callback and not is_primary_admin(user_id):
         if not is_user_verified(user_id):
             # User needs to complete CAPTCHA first
             captcha_code = await asyncio.to_thread(create_captcha_challenge, user_id)
             context.user_data['state'] = 'awaiting_captcha'
             
-            captcha_msg = (
-                "🤖 *Human Verification Required*\n\n"
-                "Please prove you're human by typing the code below:\n\n"
-                f"📝 Code: `{captcha_code}`\n\n"
-                "⚠️ Type the code exactly as shown (not case-sensitive).\n"
-                "You have 3 attempts."
-            )
-            
+            # Generate CAPTCHA image
             try:
-                await send_message_with_retry(context.bot, chat_id, captcha_msg, parse_mode=ParseMode.MARKDOWN)
-                logger.info(f"🤖 Sent CAPTCHA challenge to user {user_id}")
+                captcha_image_bytes = await asyncio.to_thread(generate_captcha_image, captcha_code)
+                
+                captcha_msg = (
+                    "🤖 *Human Verification Required*\n\n"
+                    "Please prove you're human by typing the code shown in the image below:\n\n"
+                    "⚠️ Type the code exactly as shown (not case-sensitive).\n"
+                    "You have 3 attempts."
+                )
+                
+                # Send image with caption
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=captcha_image_bytes,
+                    caption=captcha_msg,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+                logger.info(f"🤖 Sent image CAPTCHA challenge to user {user_id}")
                 return
             except Exception as e:
-                logger.error(f"Error sending CAPTCHA to user {user_id}: {e}")
-                # Continue anyway if CAPTCHA send fails
+                logger.error(f"Error generating/sending CAPTCHA image to user {user_id}: {e}")
+                # Fallback to text CAPTCHA
+                captcha_msg = (
+                    "🤖 *Human Verification Required*\n\n"
+                    "Please prove you're human by typing the code below:\n\n"
+                    f"📝 Code: `{captcha_code}`\n\n"
+                    "⚠️ Type the code exactly as shown (not case-sensitive).\n"
+                    "You have 3 attempts."
+                )
+                await send_message_with_retry(context.bot, chat_id, captcha_msg, parse_mode=ParseMode.MARKDOWN)
+                logger.info(f"🤖 Sent fallback text CAPTCHA to user {user_id}")
+                return
         else:
             logger.debug(f"✅ User {user_id} already verified, skipping CAPTCHA")
 
@@ -608,10 +627,9 @@ async def handle_district_selection(update: Update, context: ContextTypes.DEFAUL
         from utils import filter_green_emoji_from_text
         for pt in available_types:
             emoji = PRODUCT_TYPES.get(pt, DEFAULT_PRODUCT_EMOJI)
-            # Filter emoji from display name if emergency mode is active
+            # Only filter emoji from icon, keep product name intact for buyers
             display_emoji = filter_green_emoji_from_text(emoji)
-            display_name = filter_green_emoji_from_text(pt)
-            keyboard.append([InlineKeyboardButton(f"{display_emoji} {display_name}", callback_data=f"type|{city_id}|{dist_id}|{pt}")])
+            keyboard.append([InlineKeyboardButton(f"{display_emoji} {pt}", callback_data=f"type|{city_id}|{dist_id}|{pt}")])
         # Go back to city selection (which now shows the product list)
         keyboard.append([InlineKeyboardButton(f"{EMOJI_BACK} {back_districts_button}", callback_data=f"city|{city_id}"), InlineKeyboardButton(f"{EMOJI_HOME} {home_button}", callback_data="back_start")])
         try:
@@ -686,11 +704,10 @@ async def handle_type_selection(update: Update, context: ContextTypes.DEFAULT_TY
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
 
             keyboard.append([InlineKeyboardButton(f"{EMOJI_BACK} {back_types_button}", callback_data=f"dist|{city_id}|{dist_id}"), InlineKeyboardButton(f"{EMOJI_HOME} {home_button}", callback_data="back_start")])
-            # Filter emoji from display if emergency mode is active
+            # Only filter emoji from icon, keep product type name intact for buyers
             from utils import filter_green_emoji_from_text
             display_emoji = filter_green_emoji_from_text(product_emoji)
-            display_type = filter_green_emoji_from_text(p_type)
-            await query.edit_message_text(f"{EMOJI_CITY} {city}\n{EMOJI_DISTRICT} {district}\n{display_emoji} {display_type}\n\n{available_options_prompt}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=None)
+            await query.edit_message_text(f"{EMOJI_CITY} {city}\n{EMOJI_DISTRICT} {district}\n{display_emoji} {p_type}\n\n{available_options_prompt}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=None)
 
     except sqlite3.Error as e: logger.error(f"DB error fetching products {city}/{district}/{p_type}: {e}", exc_info=True); await query.edit_message_text(f"❌ {error_loading_products}", parse_mode=None)
     except Exception as e: logger.error(f"Unexpected error in handle_type_selection: {e}", exc_info=True); await query.edit_message_text(f"❌ {error_unexpected}", parse_mode=None)
@@ -744,14 +761,13 @@ async def handle_product_selection(update: Update, context: ContextTypes.DEFAULT
                 discounted_price = original_price - discount_amount
                 display_price_str = f"{format_currency(discounted_price)} (Orig: {original_price_formatted}€)"
 
-            # Filter emoji and size from display if emergency mode is active
+            # Only filter emoji from icon and 'g' from size, keep product name intact for buyers
             from utils import filter_green_emoji_from_text, filter_size_gram_symbol
             display_emoji = filter_green_emoji_from_text(product_emoji)
-            display_type = filter_green_emoji_from_text(p_type)
             display_size = filter_size_gram_symbol(size)
             
             msg = (f"{EMOJI_CITY} {city} | {EMOJI_DISTRICT} {district}\n"
-                   f"{display_emoji} {display_type} - {display_size}\n"
+                   f"{display_emoji} {p_type} - {display_size}\n"
                    f"{EMOJI_PRICE} {price_label}: {display_price_str} EUR\n"
                    f"{EMOJI_QUANTITY} {available_label_long}: {available_count}")
 
@@ -1350,11 +1366,10 @@ async def handle_view_basket(update: Update, context: ContextTypes.DEFAULT_TYPE,
     for index, item_detail in enumerate(basket_items_with_details):
         prod_id = item_detail['id']
         product_emoji = PRODUCT_TYPES.get(item_detail['type'], DEFAULT_PRODUCT_EMOJI)
-        # Filter emoji and size from display if emergency mode is active
+        # Only filter emoji from icon and 'g' from size, keep product name intact for buyers
         display_emoji = filter_green_emoji_from_text(product_emoji)
-        display_name = filter_green_emoji_from_text(item_detail['name'])
         display_size = filter_size_gram_symbol(item_detail['size'])
-        item_desc_base = f"{display_emoji} {display_name} {display_size}"
+        item_desc_base = f"{display_emoji} {item_detail['name']} {display_size}"
         price_display = format_currency(item_detail['discounted_price'])
         if item_detail['has_reseller_discount']:
             original_price_formatted = format_currency(item_detail['original_price'])
