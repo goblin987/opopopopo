@@ -854,39 +854,19 @@ def nowpayments_webhook():
                  asyncio.run_coroutine_threadsafe(asyncio.to_thread(remove_pending_deposit, payment_id, trigger="currency_mismatch"), main_loop)
                  return Response("Currency mismatch", status=400)
 
+            # Calculate EUR equivalent using PROPORTION METHOD for consistency
+            # This prevents false underpayment alerts due to volatile real-time crypto prices
             paid_eur_equivalent = Decimal('0.0')
-            # Use real-time crypto price conversion instead of proportion-based calculation
-            try:
-                crypto_price_future = asyncio.run_coroutine_threadsafe(
-                    asyncio.to_thread(get_crypto_price_eur, pay_currency), main_loop
-                )
-                crypto_price_eur = crypto_price_future.result(timeout=10)
-                
-                if crypto_price_eur and crypto_price_eur > Decimal('0.0'):
-                    paid_eur_equivalent = (actually_paid_decimal * crypto_price_eur).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                    logger.info(f"{log_prefix} {payment_id}: Used real-time price {crypto_price_eur} EUR/{pay_currency.upper()} for conversion.")
-                else:
-                    logger.warning(f"{log_prefix} {payment_id}: Could not get real-time price for {pay_currency}. Falling back to proportion method.")
-                    # Fallback to proportion method if price fetch fails
-                    if expected_crypto_decimal > Decimal('0.0'):
-                        proportion = actually_paid_decimal / expected_crypto_decimal
-                        paid_eur_equivalent = (proportion * target_eur_decimal).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                    else:
-                        logger.error(f"{log_prefix} {payment_id}: Cannot calculate EUR equivalent (expected crypto amount is zero).")
-                        asyncio.run_coroutine_threadsafe(asyncio.to_thread(remove_pending_deposit, payment_id, trigger="zero_expected_crypto"), main_loop)
-                        return Response("Cannot calculate EUR equivalent", status=400)
-            except Exception as price_e:
-                logger.error(f"{log_prefix} {payment_id}: Error getting crypto price: {price_e}. Using proportion fallback.")
-                # Fallback to proportion method if price API fails
-                if expected_crypto_decimal > Decimal('0.0'):
-                    proportion = actually_paid_decimal / expected_crypto_decimal
-                    paid_eur_equivalent = (proportion * target_eur_decimal).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                else:
-                    logger.error(f"{log_prefix} {payment_id}: Cannot calculate EUR equivalent (expected crypto amount is zero).")
-                    asyncio.run_coroutine_threadsafe(asyncio.to_thread(remove_pending_deposit, payment_id, trigger="zero_expected_crypto"), main_loop)
-                    return Response("Cannot calculate EUR equivalent", status=400)
-
-            logger.info(f"{log_prefix} {payment_id}: User {user_id} paid {actually_paid_decimal} {pay_currency}. Approx EUR value: {paid_eur_equivalent:.2f}. Target EUR: {target_eur_decimal:.2f}")
+            
+            if expected_crypto_decimal > Decimal('0.0'):
+                # Use proportion based on the invoice's locked-in rate
+                proportion = actually_paid_decimal / expected_crypto_decimal
+                paid_eur_equivalent = (proportion * target_eur_decimal).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                logger.info(f"{log_prefix} {payment_id}: User {user_id} paid {actually_paid_decimal} {pay_currency} (expected: {expected_crypto_decimal}). Proportion: {proportion:.4f}. EUR value: {paid_eur_equivalent:.2f}. Target EUR: {target_eur_decimal:.2f}")
+            else:
+                logger.error(f"{log_prefix} {payment_id}: Cannot calculate EUR equivalent (expected crypto amount is zero).")
+                asyncio.run_coroutine_threadsafe(asyncio.to_thread(remove_pending_deposit, payment_id, trigger="zero_expected_crypto"), main_loop)
+                return Response("Cannot calculate EUR equivalent", status=400)
 
             dummy_context = ContextTypes.DEFAULT_TYPE(application=telegram_app, chat_id=user_id, user_id=user_id) if telegram_app else None
             if not dummy_context:
@@ -895,10 +875,14 @@ def nowpayments_webhook():
 
             if is_purchase:
                 # CRITICAL: Check payment amount BEFORE processing to prevent underpayment exploitation
-                if paid_eur_equivalent < target_eur_decimal:
-                    # Underpayment: Reject payment, credit balance, don't give product
+                # Allow 2% tolerance for crypto price fluctuations and rounding differences
+                UNDERPAYMENT_TOLERANCE = Decimal('0.02')  # 2% tolerance
+                min_acceptable_eur = target_eur_decimal * (Decimal('1.0') - UNDERPAYMENT_TOLERANCE)
+                
+                if paid_eur_equivalent < min_acceptable_eur:
+                    # Significant Underpayment: Reject payment, credit balance, don't give product
                     underpaid_eur = (target_eur_decimal - paid_eur_equivalent).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-                    logger.warning(f"❌ UNDERPAYMENT REJECTED: User {user_id} paid {paid_eur_equivalent:.2f} EUR for {target_eur_decimal:.2f} EUR product. Short by {underpaid_eur:.2f} EUR. Crediting balance, NO PRODUCT DELIVERED.")
+                    logger.warning(f"❌ UNDERPAYMENT REJECTED: User {user_id} paid {paid_eur_equivalent:.2f} EUR for {target_eur_decimal:.2f} EUR product. Short by {underpaid_eur:.2f} EUR (>{UNDERPAYMENT_TOLERANCE*100}% tolerance). Crediting balance, NO PRODUCT DELIVERED.")
                     
                     # Credit the received amount to user's balance
                     credit_future = asyncio.run_coroutine_threadsafe(

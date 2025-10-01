@@ -229,19 +229,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Error answering callback for banned user {user_id}: {e2}")
         return
     
-    # Rate Limiting Check (prevent spam/mass reporting attempts)
-    from utils import check_rate_limit, log_suspicious_activity
-    if not is_callback:
-        is_allowed, wait_time = check_rate_limit(user_id, action="start", max_attempts=5, window_seconds=60)
-        if not is_allowed:
-            log_suspicious_activity(user_id, "RATE_LIMIT_EXCEEDED", f"/start command - must wait {wait_time}s")
-            await send_message_with_retry(
-                context.bot, chat_id,
-                f"⏳ Please slow down. You can try again in {wait_time} seconds.",
-                parse_mode=None
-            )
-            return
-    
     # CAPTCHA Verification Check (skip for callbacks and admins)
     from utils import is_user_verified, create_captcha_challenge, is_primary_admin, generate_captcha_image
     if not is_callback and not is_primary_admin(user_id):
@@ -926,8 +913,11 @@ async def handle_add_to_basket(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
         # --- Build Message ---
-        item_price_str = format_currency(original_price)
-        item_desc = f"{product_emoji} {p_type} {size} ({item_price_str}€)"
+        from utils import filter_green_emoji_from_text, filter_size_gram_symbol
+        display_emoji = filter_green_emoji_from_text(product_emoji)
+        display_size = filter_size_gram_symbol(size)
+        item_price_str = format_currency(original_price)  # Respects EUR hiding
+        item_desc = f"{display_emoji} {p_type} {display_size} ({item_price_str})"
         expiry_dt = datetime.fromtimestamp(timestamp + BASKET_TIMEOUT); expiry_time_str = expiry_dt.strftime('%H:%M:%S')
         reserved_msg = (added_msg_template.format(timeout=timeout_minutes, item=item_desc) + "\n\n" + f"⏳ {expires_label}: {expiry_time_str}\n\n")
 
@@ -2212,8 +2202,13 @@ async def handle_price_list_city(update: Update, context: ContextTypes.DEFAULT_T
                 type_data = grouped_data[p_type]; sorted_price_size = sorted(type_data.keys(), key=lambda x: (x[0], x[1]))
                 prod_emoji = PRODUCT_TYPES.get(p_type, DEFAULT_PRODUCT_EMOJI)
                 for price, size in sorted_price_size:
-                    districts_list = type_data[(price, size)]; price_str = format_currency(price)
-                    msg += f"\n{prod_emoji} {p_type} {size} ({price_str}€)\n"
+                    districts_list = type_data[(price, size)]
+                    # Apply emergency mode filters
+                    from utils import filter_green_emoji_from_text, filter_size_gram_symbol
+                    display_emoji = filter_green_emoji_from_text(prod_emoji)
+                    display_size = filter_size_gram_symbol(size)
+                    price_str = format_currency(price)  # This respects EUR hiding from emergency mode
+                    msg += f"\n{display_emoji} {p_type} {display_size} ({price_str})\n"
                     districts_list.sort(key=lambda x: x[0])
                     for district, quantity in districts_list: msg += f"  • {EMOJI_DISTRICT} {district}\n"
 

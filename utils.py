@@ -1183,75 +1183,6 @@ def filter_size_gram_symbol(size: str) -> str:
     return size
 
 
-# --- Rate Limiting Functions ---
-def check_rate_limit(user_id: int, action: str = "start", max_attempts: int = 5, window_seconds: int = 60) -> tuple[bool, int]:
-    """
-    Check if user has exceeded rate limit.
-    Returns: (is_allowed, seconds_until_reset)
-    """
-    import time
-    conn = None
-    try:
-        conn = get_db_connection()
-        c = conn.cursor()
-        
-        current_time = int(time.time())
-        window_start = current_time - window_seconds
-        
-        # Clean old entries
-        c.execute("DELETE FROM rate_limits WHERE timestamp < ?", (window_start,))
-        
-        # Count recent attempts
-        c.execute("""
-            SELECT COUNT(*) as attempt_count, MIN(timestamp) as first_attempt
-            FROM rate_limits 
-            WHERE user_id = ? AND action = ? AND timestamp >= ?
-        """, (user_id, action, window_start))
-        
-        result = c.fetchone()
-        attempt_count = result['attempt_count'] if result else 0
-        first_attempt = result['first_attempt'] if result else current_time
-        
-        if attempt_count >= max_attempts:
-            # Calculate when the oldest attempt will expire
-            seconds_until_reset = window_seconds - (current_time - first_attempt)
-            logger.warning(f"🚫 Rate limit exceeded for user {user_id}, action '{action}': {attempt_count}/{max_attempts} in {window_seconds}s")
-            return False, max(0, seconds_until_reset)
-        
-        # Record this attempt
-        c.execute("INSERT INTO rate_limits (user_id, action, timestamp) VALUES (?, ?, ?)", 
-                 (user_id, action, current_time))
-        conn.commit()
-        
-        return True, 0
-        
-    except sqlite3.Error as e:
-        logger.error(f"Error checking rate limit: {e}")
-        return True, 0  # Fail open - allow on error
-    finally:
-        if conn:
-            conn.close()
-
-
-def log_suspicious_activity(user_id: int, activity_type: str, details: str = None):
-    """Log suspicious user activity for monitoring."""
-    conn = None
-    try:
-        conn = get_db_connection()
-        c = conn.cursor()
-        c.execute("""
-            INSERT INTO suspicious_activity (user_id, activity_type, details) 
-            VALUES (?, ?, ?)
-        """, (user_id, activity_type, details))
-        conn.commit()
-        logger.warning(f"⚠️ SUSPICIOUS: User {user_id} - {activity_type}: {details}")
-    except sqlite3.Error as e:
-        logger.error(f"Error logging suspicious activity: {e}")
-    finally:
-        if conn:
-            conn.close()
-
-
 # --- CAPTCHA Verification Helpers ---
 import random
 import string
@@ -1741,39 +1672,6 @@ def init_db():
                 last_attempt_time TEXT,
                 verified_at TEXT
             )''')
-            
-            # --- Rate Limiting Table ---
-            c.execute('''CREATE TABLE IF NOT EXISTS rate_limits (
-                user_id INTEGER NOT NULL,
-                action TEXT NOT NULL,
-                timestamp INTEGER NOT NULL,
-                PRIMARY KEY (user_id, action, timestamp)
-            )''')
-            c.execute('''CREATE INDEX IF NOT EXISTS idx_rate_limits_user_action 
-                        ON rate_limits(user_id, action, timestamp)''')
-            
-            # --- Invite Codes Table ---
-            c.execute('''CREATE TABLE IF NOT EXISTS invite_codes (
-                code TEXT PRIMARY KEY,
-                created_by INTEGER,
-                used_by INTEGER,
-                created_at TEXT,
-                used_at TEXT,
-                max_uses INTEGER DEFAULT 1,
-                current_uses INTEGER DEFAULT 0,
-                is_active INTEGER DEFAULT 1
-            )''')
-            
-            # --- Suspicious Activity Log ---
-            c.execute('''CREATE TABLE IF NOT EXISTS suspicious_activity (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                activity_type TEXT NOT NULL,
-                details TEXT,
-                timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-            )''')
-            c.execute('''CREATE INDEX IF NOT EXISTS idx_suspicious_activity_user 
-                        ON suspicious_activity(user_id, timestamp)''')
             
             # Add index for faster lookups
             c.execute("CREATE INDEX IF NOT EXISTS idx_captcha_user_verified ON captcha_verification(user_id, is_verified)")
